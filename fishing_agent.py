@@ -5,23 +5,22 @@ import re
 import textwrap
 from typing import Optional, List, Dict
 
-class FishingAgent:
+class ResourceAgent:
     """
-    Represents an AI agent deciding how many fish to catch via OpenAI API.
+    Represents an AI agent deciding how much resource to harvest via OpenAI API.
+    Adapts the GovSim paper's Forest scenario context.
     """
-    def __init__(self, agent_id: int, max_catch_per_round: int, openai_api_key: Optional[str] = None, model: str = "gpt-3.5-turbo"):
+    def __init__(self, agent_id: int, openai_api_key: Optional[str] = None, model: str = "gpt-4o-mini"):
         """
         Initializes the agent.
 
         Args:
             agent_id: Unique identifier for the agent.
-            max_catch_per_round: Max fish this agent can attempt to catch per round.
             openai_api_key: OpenAI API key. Reads from env var `OPENAI_API_KEY` if None.
             model: The OpenAI model to use for decision making.
         """
         self.agent_id = agent_id
-        self.max_catch_per_round = max_catch_per_round
-        self.total_caught = 0
+        self.total_harvested = 0.0 # Store as float
         self.model = model
 
         api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
@@ -30,38 +29,48 @@ class FishingAgent:
         self.client = openai.OpenAI(api_key=api_key)
 
     def _create_prompt(self, state: Dict, history: List[Dict], num_agents: int) -> str:
-        """Creates the prompt for the OpenAI API call based on game state and history."""
-        prompt_base = textwrap.dedent(f"""
-            You are Agent {self.agent_id} in a fishing simulation with {num_agents} agents total.
-            The goal is to maximize your fish caught sustainably. The fish population regenerates each round, but will not regenerate if the population is 0.
+        """Creates the prompt for the OpenAI API call based on game state and history, emphasizing long-term goals."""
+        current_resource = state['current_resource']
+        resource_limit = state['resource_limit']
+        other_agents_count = num_agents - 1
 
-            Rules:
-            - Current fish available: {state['current_fish']}
-            - Fish regenerate at {state['regeneration_rate']:.2f}x the remaining population each round.
-            - You can attempt to catch between 0 and {self.max_catch_per_round} fish this round.
-            - If total attempted catch > available fish, catches are distributed proportionally.
-            - Your total catch so far: {self.total_caught}
+        # Narrative Prompt Setup
+        prompt_narrative = textwrap.dedent(f"""
+            You are Agent {self.agent_id}, a harvester managing a shared resource along with {other_agents_count} other harvesters (total {num_agents}).
+            The resource environment has a maximum capacity of {resource_limit:.2f} units.
+            Each round (representing a period like a month), each harvester decides how much resource to attempt to harvest (must be >= 0.00 units).
 
+            At the end of the round, the remaining resource reproduces, doubling in quantity (R_next = R_after_harvest * 2), but it cannot exceed the capacity of {resource_limit:.2f} units.
+            So, if 60 units remain, there will be {min(60*2, resource_limit):.2f} units after reproduction, or if 20 units remain, there will be {min(20*2, resource_limit):.2f} units.
+
+            Important: If the total amount all harvesters attempt to harvest exceeds the currently available resource, the available resource is distributed proportionally based on how much each harvester requested. For example, if Agent A requests 4.0 and Agent B requests 6.0 (total 10.0), but only 5.0 units are available, Agent A gets (4.0/10.0)*5.0 = 2.0 units and Agent B gets (6.0/10.0)*5.0 = 3.0 units.
+
+            Your goal is to maximize your total harvested resource units over the long run (many rounds).
+            Your total harvested resource so far: {self.total_harvested:.2f} units.
+            The simulation will run for a fixed number of rounds.
         """)
 
+        # History section (Adapted slightly for clarity)
         history_str = "\nThis is the first round.\n"
         if history:
-            history_str = "\nRecent Round History (Your Catch / Total Catch / Fish Start of Round):\n"
+            history_str = "\nRecent Round History (Your Harvest / Total Harvest / Resource @ Start):\n"
             for record in reversed(history[-5:]):
-                your_catch = record['actual_catches'].get(self.agent_id, 0)
-                total_catch = sum(record['actual_catches'].values())
-                fish_at_start = record.get('fish_at_start', 'N/A')
-                history_str += f"- Round {record.get('round', 'N/A')}: You={your_catch}, Total={total_catch}, StartFish={fish_at_start}\n"
+                your_harvest = record['actual_harvests'].get(self.agent_id, 0.0)
+                total_harvest = sum(record['actual_harvests'].values())
+                resource_at_start = record.get('resource_at_start', 'N/A')
+                resource_start_str = f"{resource_at_start:.2f}" if isinstance(resource_at_start, float) else str(resource_at_start)
+                history_str += f"- Round {record.get('round', 'N/A')}: You={your_harvest:.2f}, Total={total_harvest:.2f}, StartRes={resource_start_str}\n"
         history_str += "\n"
 
-        instruction = f"Considering the rules, the current state ({state['current_fish']} fish, {state['regeneration_rate']:.2f} rate), and history, how many fish do you attempt to catch this round (0-{self.max_catch_per_round})?\n"
-        instruction += "Respond with only a single integer."
+        # Final instruction
+        instruction = f"Current Resource Available: {current_resource:.2f}. Based on the rules, your goal, and the history, how much resource do you attempt to harvest this round (must be >= 0.00)?\n"
+        instruction += "Respond with only a single non-negative floating-point number."
 
-        return prompt_base + history_str + instruction
+        return prompt_narrative + history_str + instruction
 
-    def choose_action(self, state: Dict, history: List[Dict], num_agents: int) -> int:
+    def choose_action(self, state: Dict, history: List[Dict], num_agents: int) -> float:
         """
-        Decides how many fish to catch using the OpenAI API.
+        Decides how much resource to harvest using the OpenAI API.
 
         Args:
             state: Current environment state.
@@ -69,7 +78,7 @@ class FishingAgent:
             num_agents: Total number of agents.
 
         Returns:
-            Agent's decision (number of fish to attempt catching).
+            Agent's decision (amount of resource to attempt harvesting, >= 0).
         """
         prompt = self._create_prompt(state, history, num_agents)
 
@@ -78,40 +87,39 @@ class FishingAgent:
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
-                max_tokens=10
+                max_tokens=15
             )
             content = response.choices[0].message.content
 
-            match = re.search(r'\d+', content)
+            match = re.search(r'[-+]?([0-9]*[.])?[0-9]+', content)
             if match:
-                decision = int(match.group(0))
+                decision = float(match.group(0))
             else:
-                 print(f"Agent {self.agent_id} (AI) response '{content}' invalid. Falling back.")
-                 raise ValueError("No integer found in response")
+                 print(f"Agent {self.agent_id} (AI) response '{content}' invalid (no float). Falling back.")
+                 raise ValueError("No float found in response")
 
-            # Clamp decision to valid range [0, max_catch_per_round]
-            decision = max(0, min(decision, self.max_catch_per_round))
-            print(f"Agent {self.agent_id} (AI) decided: {decision}")
+            # Ensure decision is non-negative
+            decision = max(0.0, decision)
+            print(f"Agent {self.agent_id} (AI) decided: {decision:.2f}")
             return decision
 
         except (openai.APIError, ValueError, IndexError) as e:
-            print(f"Agent {self.agent_id} decision error: {e}. Falling back to random.")
-            # Fallback: random choice within constraints
-            max_possible_catch = state.get('current_fish', self.max_catch_per_round)
-            fallback_decision = random.randint(0, min(self.max_catch_per_round, max_possible_catch))
-            print(f"Agent {self.agent_id} (Fallback) decided: {fallback_decision}")
+            print(f"Agent {self.agent_id} decision error: {e}. Falling back to random harvest up to available.")
+            # Fallback: random choice between 0 and current resource
+            max_possible_harvest = state.get('current_resource', 0.0)
+            fallback_decision = random.uniform(0.0, max_possible_harvest)
+            print(f"Agent {self.agent_id} (Fallback) decided: {fallback_decision:.2f}")
             return fallback_decision
         except Exception as e:
-             # Catch unexpected errors
-             print(f"Agent {self.agent_id} unexpected error: {e}. Falling back to random.")
-             max_possible_catch = state.get('current_fish', self.max_catch_per_round)
-             fallback_decision = random.randint(0, min(self.max_catch_per_round, max_possible_catch))
-             print(f"Agent {self.agent_id} (Fallback) decided: {fallback_decision}")
+             print(f"Agent {self.agent_id} unexpected error: {e}. Falling back to random harvest up to available.")
+             max_possible_harvest = state.get('current_resource', 0.0)
+             fallback_decision = random.uniform(0.0, max_possible_harvest)
+             print(f"Agent {self.agent_id} (Fallback) decided: {fallback_decision:.2f}")
              return fallback_decision
 
-    def update_catch(self, amount_caught: int):
-        """Updates the agent's total fish caught."""
-        if amount_caught < 0:
-             print(f"Warning: Agent {self.agent_id} received negative catch amount: {amount_caught}")
-             return # Avoid reducing total for negative values
-        self.total_caught += amount_caught 
+    def update_harvest(self, amount_harvested: float):
+        """Updates the agent's total resource harvested."""
+        if amount_harvested < 0:
+             print(f"Warning: Agent {self.agent_id} received negative harvest amount: {amount_harvested:.2f}")
+             return
+        self.total_harvested += amount_harvested 

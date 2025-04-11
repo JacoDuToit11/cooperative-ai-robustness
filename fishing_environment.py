@@ -1,63 +1,68 @@
 import math
 
-class FishingEnvironment:
+class ResourceEnvironment:
     """
-    Manages the shared fish resource in the simulation.
+    Manages a shared resource that doubles each round, capped at a limit.
     """
-    def __init__(self, initial_fish: int, regeneration_rate: float):
+    def __init__(self, initial_resource: float, resource_limit: float):
         """
-        Initializes the fishing environment.
+        Initializes the environment.
 
         Args:
-            initial_fish: The starting number of fish.
-            regeneration_rate: The factor by which the fish population multiplies each round.
+            initial_resource: The starting amount of the resource.
+            resource_limit: The maximum resource level the environment can sustain.
         """
-        if initial_fish < 0:
-            raise ValueError("Initial fish count cannot be negative.")
-        if regeneration_rate <= 0:
-            raise ValueError("Regeneration rate must be positive.")
+        if initial_resource < 0:
+            raise ValueError("Initial resource cannot be negative.")
+        if resource_limit <= 0:
+            raise ValueError("Resource limit must be positive.")
 
-        self.current_fish = float(initial_fish) # Store as float for regeneration calculations
-        self.regeneration_rate = regeneration_rate
-        self.initial_fish = initial_fish
+        self.resource_limit = resource_limit
+        # Ensure initial resource does not exceed limit
+        self.current_resource = min(float(initial_resource), self.resource_limit)
+        self.initial_resource = initial_resource
 
-    def get_fish_count(self) -> int:
-        """Returns the current number of fish, rounded down."""
-        return math.floor(self.current_fish)
+    def get_resource_level(self) -> float:
+        """Returns the current resource level."""
+        return self.current_resource
 
-    def take_fish(self, amount: int) -> int:
+    def take_resource(self, amount: float) -> float:
         """
-        Removes a specified amount of fish from the environment.
+        Removes a specified amount of resource from the environment.
 
         Args:
-            amount: The non-negative number of fish agents attempt to take.
+            amount: The non-negative amount agents attempt to take.
 
         Returns:
-            The actual number of fish taken, potentially less than requested.
+            The actual amount taken, potentially less than requested.
         """
         if amount < 0:
-            # Avoid allowing negative takes, although callers should ideally prevent this.
-            print("Warning: Attempted to take a negative amount of fish. Taking 0.")
-            return 0
+            print("Warning: Attempted to take a negative amount. Taking 0.")
+            return 0.0
 
-        available = self.get_fish_count()
-        taken_fish = min(amount, available)
-        self.current_fish -= taken_fish
-        self.current_fish = max(0.0, self.current_fish) # Ensure float stays non-negative
-        return taken_fish
+        available = self.get_resource_level()
+        taken_resource = min(amount, available)
+        self.current_resource -= taken_resource
+        self.current_resource = max(0.0, self.current_resource)
+        return taken_resource
 
     def regenerate(self):
         """
-        Applies the regeneration rate to the current fish population.
+        Doubles the current resource level, capped by the resource limit.
         """
-        self.current_fish *= self.regeneration_rate
+        if self.current_resource <= 0:
+            return # No growth if resource is depleted
+
+        self.current_resource *= 2
+        # Ensure resource does not exceed limit after doubling
+        self.current_resource = min(self.current_resource, self.resource_limit)
 
     def get_state(self) -> dict:
         """Returns the current state of the environment."""
         return {
-            "current_fish": self.get_fish_count(),
-            "regeneration_rate": self.regeneration_rate
+            "current_resource": self.get_resource_level(),
+            "resource_limit": self.resource_limit
         }
 
     def __str__(self) -> str:
-        return f"FishingEnvironment(Fish: {self.get_fish_count()}, Regen Rate: {self.regeneration_rate})" 
+        return f"ResourceEnvironment(Resource: {self.current_resource:.2f}, Limit: {self.resource_limit:.2f})" 
