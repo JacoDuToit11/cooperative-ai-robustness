@@ -4,47 +4,54 @@ import traceback
 import math
 import time
 import matplotlib.pyplot as plt
-import numpy as np # Import numpy for Gini
+import numpy as np
 from typing import List, Dict
-from fishing_environment import ResourceEnvironment # Renamed import
-from fishing_agent import ResourceAgent # Renamed import
+from environment import ResourceEnvironment
+from agent import Agent
+
 
 def calculate_gini(payoffs: List[float]) -> float:
     """Calculates the Gini coefficient for a list of payoffs."""
     if not payoffs or sum(payoffs) == 0:
-        return 0.0 # Gini is 0 if no payoffs or all are zero
-    payoffs = np.sort(np.array(payoffs))
+        return 0.0
+    # Gini calculation requires numpy
+    payoffs = np.sort(np.array(payoffs, dtype=np.float64))
     n = len(payoffs)
     index = np.arange(1, n + 1)
-    # Gini formula: (sum( (2*i - n - 1) * x_i )) / (n * sum(x_i))
     gini = (np.sum((2 * index - n - 1) * payoffs)) / (n * np.sum(payoffs))
     return gini
 
 def generate_cooperative_history(
     seed_rounds: int,
     env: ResourceEnvironment,
-    agents: List[ResourceAgent],
-    num_agents: int,
-    cooperation_harvest_fraction: float = 0.1 # Fraction of current resource to target harvesting total
+    agents: List[Agent],
+    num_agents: int
 ) -> List[Dict]:
-    """Generates a history of rounds with a predefined cooperative strategy."""
-    print(f"--- Generating {seed_rounds} Seeded Cooperative Rounds ---")
+    """Generates a history of rounds using an optimal sustainable harvesting strategy
+       for the doubling-with-limit environment.
+    """
+    print(f"--- Generating {seed_rounds} Seeded Optimal Sustainable Rounds ---")
     history = []
     for seeded_round in range(1, seed_rounds + 1):
         state = env.get_state()
         resource_at_start = state['current_resource']
+        resource_limit = state['resource_limit']
         print(f" Seed Round {seeded_round}: Start Resource={resource_at_start:.2f}")
 
-        if resource_at_start <= 1e-6: # Use tolerance for float comparison
+        if resource_at_start <= 1e-6:
             print(" Seed Round: Resource depleted during seeding.")
             break
 
-        # Cooperative strategy: Target a small fraction of the current resource, divided equally
-        total_cooperative_harvest = resource_at_start * cooperation_harvest_fraction
-        target_harvest_per_agent = (total_cooperative_harvest / num_agents) if num_agents > 0 else 0
+        # Optimal sustainable strategy for doubling w/ limit:
+        target_remaining = resource_limit / 2.0
+        if resource_at_start > target_remaining:
+            total_optimal_harvest = resource_at_start - target_remaining
+        else:
+            total_optimal_harvest = 0.0
 
-        # Ensure harvest is within limits
-        target_harvest_per_agent = max(0.0, min(target_harvest_per_agent, resource_at_start / num_agents if num_agents > 0 else 0))
+        target_harvest_per_agent = (total_optimal_harvest / num_agents) if num_agents > 0 else 0
+        target_harvest_per_agent = max(0.0, target_harvest_per_agent)
+        target_harvest_per_agent = min(target_harvest_per_agent, resource_at_start / num_agents if num_agents > 0 else 0)
 
         actual_harvests: Dict[int, float] = {}
         total_actually_harvested = 0.0
@@ -54,20 +61,19 @@ def generate_cooperative_history(
             if not math.isclose(taken, harvest_amount, rel_tol=1e-6):
                  print(f" Seed Round Warning: Agent {agent.agent_id} target {harvest_amount:.2f} != taken {taken:.2f}. Using {taken:.2f}.")
                  harvest_amount = taken
-            agent.update_harvest(harvest_amount) # Use updated agent method
+            agent.update_payoff(harvest_amount)
             actual_harvests[agent.agent_id] = harvest_amount
             total_actually_harvested += harvest_amount
-            print(f" Seed Round Agent {agent.agent_id}: Cooperatively Harvested={harvest_amount:.2f}")
+            print(f" Seed Round Agent {agent.agent_id}: Optimally Harvested={harvest_amount:.2f}")
 
         resource_before_regen = env.get_resource_level()
         print(f" Seed Round: Total Harvested={total_actually_harvested:.2f}, Res Before Regen={resource_before_regen:.2f}")
 
-        # Record history
         history.append({
             'round': seeded_round,
             'resource_at_start': resource_at_start,
-            'attempted_harvests': actual_harvests.copy(), # Rename key
-            'actual_harvests': actual_harvests.copy(),    # Rename key
+            'attempted_harvests': actual_harvests.copy(),
+            'actual_harvests': actual_harvests.copy(),
             'total_harvested_this_round': total_actually_harvested,
             'resource_before_regen': resource_before_regen
         })
@@ -84,12 +90,14 @@ def run_simulation(
     resource_limit: float,
     total_rounds: int,
     model: str,
-    seed_rounds: int
+    seed_rounds: int,
+    scenario_name: str,
+    critical_threshold: float
 ):
     """Runs the resource harvesting simulation with live plotting and optional seeded history."""
 
     print("--- Starting Resource Harvesting Simulation ---")
-    print(f" Parameters: Agents={num_agents}, Initial Resource={initial_resource:.2f}, Limit={resource_limit:.2f}, Total Rounds={total_rounds}, Seed Rounds={seed_rounds}, Model={model}")
+    print(f" Parameters: Agents={num_agents}, Initial Resource={initial_resource:.2f}, Limit={resource_limit:.2f}, Threshold={critical_threshold:.2f}, Total Rounds={total_rounds}, Seed Rounds={seed_rounds}, Model={model}, Scenario={scenario_name}")
 
     try:
         env = ResourceEnvironment(initial_resource, resource_limit)
@@ -97,11 +105,12 @@ def run_simulation(
         print(f"Error initializing environment: {e}")
         return
 
-    agents: List[ResourceAgent] = []
+    agents: List[Agent] = []
     try:
         for i in range(num_agents):
-            agents.append(ResourceAgent(
+            agents.append(Agent(
                 agent_id=i + 1,
+                scenario_name=scenario_name,
                 model=model
             ))
     except ValueError as e:
@@ -113,7 +122,7 @@ def run_simulation(
         traceback.print_exc()
         return
 
-    # Generate Seeded History
+    # Generate Seeded History if needed
     history: List[Dict] = []
     start_round = 1
     if seed_rounds > 0:
@@ -143,8 +152,8 @@ def run_simulation(
 
     line_resource, = ax.plot(round_numbers, resource_levels, marker='o', linestyle='-', color='g', label='Resource Level')
     line_harvest, = ax.plot(round_numbers, total_harvests_this_round, marker='x', linestyle='--', color='r', label='Total Harvest This Round')
-    # Add line for resource limit
     ax.axhline(y=env.resource_limit, color='grey', linestyle=':', label=f'Limit ({env.resource_limit:.0f})')
+    ax.axhline(y=critical_threshold, color='orange', linestyle=':', label=f'Threshold ({critical_threshold:.1f})')
     ax.set_xlabel("Round")
     ax.set_ylabel("Amount")
     ax.set_title("Resource Harvesting Simulation")
@@ -153,16 +162,19 @@ def run_simulation(
     plt.show()
 
     try:
-        # Simulation Loop
+        # Main Simulation Loop
         for current_round in range(start_round, total_rounds + 1):
             print(f"\n--- Round {current_round} / {total_rounds} --- ")
             state = env.get_state()
             resource_at_start_of_round = state['current_resource']
             print(f"Start: {resource_at_start_of_round:.2f} resource")
 
-            # Check for termination condition (resource depleted)
+            # Check termination conditions
             if resource_at_start_of_round <= 1e-6:
                 print("Resource depleted. Ending simulation.")
+                break
+            if resource_at_start_of_round < critical_threshold:
+                print(f"Resource level ({resource_at_start_of_round:.2f}) below critical threshold ({critical_threshold:.2f}). Ending simulation.")
                 break
 
             # 1. Agents choose actions
@@ -174,23 +186,30 @@ def run_simulation(
                 total_attempted_harvest += decision
             print(f"Attempted total harvest: {total_attempted_harvest:.2f}")
 
-            # 2. Determine actual harvests
+            # 2. Determine actual harvests based on availability
             actual_harvests: Dict[int, float] = {}
             available_resource = env.get_resource_level()
             total_actually_harvested = 0.0
 
             if total_attempted_harvest <= 1e-6:
-                pass
+                # No harvest attempted
+                for agent in agents:
+                    actual_harvests[agent.agent_id] = 0.0
             elif available_resource <= 1e-6:
                  print(" No resource available to harvest.")
+                 for agent in agents:
+                    actual_harvests[agent.agent_id] = 0.0
             elif total_attempted_harvest <= available_resource:
+                # Sufficient resource
                 actual_harvests = attempted_harvests
             else:
+                # Insufficient resource: distribute proportionally
                 print(f" Attempted harvest ({total_attempted_harvest:.2f}) > available ({available_resource:.2f}). Distributing proportionally.")
                 for agent_id, attempted in attempted_harvests.items():
                     proportion = (attempted / total_attempted_harvest) if total_attempted_harvest > 1e-6 else 0
-                    actual_harvests[agent_id] = proportion * available_resource # No floor for float
+                    actual_harvests[agent_id] = proportion * available_resource
 
+            # Ensure all agents have an entry (even if 0)
             for agent in agents:
                 if agent.agent_id not in actual_harvests:
                     actual_harvests[agent.agent_id] = 0.0
@@ -201,11 +220,10 @@ def run_simulation(
                 agent_id = agent.agent_id
                 harvest_amount = actual_harvests.get(agent_id, 0.0)
                 taken = env.take_resource(harvest_amount)
-                # Use tolerance for float comparison
                 if not math.isclose(taken, harvest_amount, rel_tol=1e-6):
                     print(f" Warning: Agent {agent_id} allocation {harvest_amount:.2f} != taken {taken:.2f}. Using {taken:.2f}.")
                     harvest_amount = taken
-                agent.update_harvest(harvest_amount)
+                agent.update_payoff(harvest_amount)
                 print(f" Agent {agent_id}: Attempt={attempted_harvests.get(agent_id, 0.0):.2f}, Harvested={harvest_amount:.2f}")
 
             print(f"Total harvested this round: {total_actually_harvested:.2f}")
@@ -253,14 +271,11 @@ def run_simulation(
         print(f"Final Resource Level: {final_resource_level:.2f} / {env.resource_limit:.2f}")
 
         # Calculate Metrics
-        agent_payoffs = [agent.total_harvested for agent in agents]
+        agent_payoffs = [agent.total_payoff for agent in agents]
         total_harvest_overall = sum(agent_payoffs)
 
-        # Sustainability: Final resource relative to limit
         sustainability = (final_resource_level / env.resource_limit) if env.resource_limit > 0 else 0.0
-        # Equality: Gini coefficient of payoffs
         equality_gini = calculate_gini(agent_payoffs)
-        # Efficiency: Average payoff per agent
         efficiency = (total_harvest_overall / num_agents) if num_agents > 0 else 0.0
 
         print("\n--- Performance Metrics ---")
@@ -270,7 +285,7 @@ def run_simulation(
 
         print("\nAgent Totals:")
         for agent in agents:
-            print(f"- Agent {agent.agent_id}: Harvested {agent.total_harvested:.2f}")
+            print(f"- Agent {agent.agent_id}: Harvested {agent.total_payoff:.2f}")
         print(f"Total resource harvested overall: {total_harvest_overall:.2f}")
 
         print("\nClose the plot window to exit.")
@@ -279,18 +294,27 @@ def run_simulation(
 def parse_args():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Run a multi-agent resource harvesting simulation (doubling growth model).",
+        description="Run a multi-agent resource harvesting simulation.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
+    parser.add_argument("--scenario", type=str, default="fishing", help="Name of the scenario to run (determines prompts and potentially environment behavior).")
     parser.add_argument("--num_agents", type=int, default=4, help="Number of agents.")
     parser.add_argument("--initial_resource", type=float, default=100.0, help="Initial amount of resource.")
     parser.add_argument("--resource_limit", type=float, default=100.0, help="Maximum resource limit.")
+    parser.add_argument("--critical_threshold", type=float, default=5.0, help="Resource level below which the simulation ends.")
     parser.add_argument("--rounds", dest='total_rounds', type=int, default=50, help="Maximum number of simulation rounds.")
     parser.add_argument("--model", type=str, default="gpt-4o-mini", help="OpenAI model for agent decisions.")
     parser.add_argument("--seed_rounds", type=int, default=0, help="Number of initial rounds to simulate with a cooperative strategy.")
 
     args = parser.parse_args()
 
+    # Validation checks
+    if args.critical_threshold < 0:
+        parser.error("Critical threshold cannot be negative.")
+    if args.critical_threshold >= args.resource_limit:
+        parser.error("Critical threshold must be less than the resource limit.")
+    if args.initial_resource < args.critical_threshold:
+         print(f"Warning: Initial resource ({args.initial_resource}) is already below critical threshold ({args.critical_threshold}). Simulation may end immediately.")
     if args.num_agents <= 0:
         parser.error("Number of agents must be positive.")
     if args.initial_resource < 0:
@@ -305,7 +329,8 @@ def parse_args():
     return args
 
 if __name__ == "__main__":
-    import os # Ensure os is imported if needed later, though not strictly necessary now
+    # Ensure necessary imports are present if script is run directly
+    import os 
     import math
     import numpy as np
 
@@ -316,5 +341,7 @@ if __name__ == "__main__":
         resource_limit=args.resource_limit,
         total_rounds=args.total_rounds,
         model=args.model,
-        seed_rounds=args.seed_rounds
+        seed_rounds=args.seed_rounds,
+        scenario_name=args.scenario,
+        critical_threshold=args.critical_threshold
     )

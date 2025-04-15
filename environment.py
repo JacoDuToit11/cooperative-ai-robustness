@@ -1,5 +1,3 @@
-import math
-
 class ResourceEnvironment:
     """
     Manages a shared resource that doubles each round, capped at a limit.
@@ -18,7 +16,6 @@ class ResourceEnvironment:
             raise ValueError("Resource limit must be positive.")
 
         self.resource_limit = resource_limit
-        # Ensure initial resource does not exceed limit
         self.current_resource = min(float(initial_resource), self.resource_limit)
         self.initial_resource = initial_resource
 
@@ -51,10 +48,9 @@ class ResourceEnvironment:
         Doubles the current resource level, capped by the resource limit.
         """
         if self.current_resource <= 0:
-            return # No growth if resource is depleted
+            return
 
         self.current_resource *= 2
-        # Ensure resource does not exceed limit after doubling
         self.current_resource = min(self.current_resource, self.resource_limit)
 
     def get_state(self) -> dict:
