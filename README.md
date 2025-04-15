@@ -93,6 +93,8 @@ python main.py [OPTIONS]
 *   `--rounds`: Maximum number of simulation rounds (default: 50).
 *   `--model`: OpenAI model for agent decisions (default: `gpt-4o-mini`).
 *   `--seed_rounds`: Number of initial rounds to simulate with an optimal sustainable strategy (default: 0).
+*   `--shock_probability`: Probability (0.0-1.0) of a random shock reducing the resource each round (default: 0.0).
+*   `--shock_magnitude`: Fraction (0.0-1.0) resource is reduced by during a shock (default: 0.5).
 
 ## Output
 

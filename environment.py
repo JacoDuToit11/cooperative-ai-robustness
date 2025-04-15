@@ -1,3 +1,5 @@
+import random
+
 class ResourceEnvironment:
     """
     Manages a shared resource that doubles each round, capped at a limit.
@@ -52,6 +54,26 @@ class ResourceEnvironment:
 
         self.current_resource *= 2
         self.current_resource = min(self.current_resource, self.resource_limit)
+
+    def apply_shock(self, probability: float, magnitude_factor: float) -> float:
+        """
+        Applies a random shock that reduces the current resource.
+
+        Args:
+            probability: The probability (0.0 to 1.0) of a shock occurring.
+            magnitude_factor: The fraction (0.0 to 1.0) by which to reduce the resource if a shock occurs.
+
+        Returns:
+            The absolute amount by which the resource was reduced (0.0 if no shock occurred).
+        """
+        reduction_amount = 0.0
+        if random.random() < probability:
+            current_level = self.get_resource_level()
+            reduction_amount = current_level * magnitude_factor
+            self.current_resource -= reduction_amount
+            self.current_resource = max(0.0, self.current_resource) # Ensure not negative
+            print(f"  !!! Natural Shock Occurred! Resource reduced by {reduction_amount:.2f} !!!")
+        return reduction_amount
 
     def get_state(self) -> dict:
         """Returns the current state of the environment."""

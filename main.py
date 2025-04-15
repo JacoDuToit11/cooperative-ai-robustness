@@ -92,12 +92,16 @@ def run_simulation(
     model: str,
     seed_rounds: int,
     scenario_name: str,
-    critical_threshold: float
+    critical_threshold: float,
+    shock_probability: float,
+    shock_magnitude: float
 ):
     """Runs the resource harvesting simulation with live plotting and optional seeded history."""
 
     print("--- Starting Resource Harvesting Simulation ---")
-    print(f" Parameters: Agents={num_agents}, Initial Resource={initial_resource:.2f}, Limit={resource_limit:.2f}, Threshold={critical_threshold:.2f}, Total Rounds={total_rounds}, Seed Rounds={seed_rounds}, Model={model}, Scenario={scenario_name}")
+    print(f" Parameters: Agents={num_agents}, Initial Resource={initial_resource:.2f}, Limit={resource_limit:.2f}, Threshold={critical_threshold:.2f}")
+    print(f"             Rounds={total_rounds}, Seed Rounds={seed_rounds}, Shock Prob={shock_probability:.2f}, Shock Mag={shock_magnitude:.2f}")
+    print(f"             Model={model}, Scenario={scenario_name}")
 
     try:
         env = ResourceEnvironment(initial_resource, resource_limit)
@@ -165,34 +169,44 @@ def run_simulation(
         # Main Simulation Loop
         for current_round in range(start_round, total_rounds + 1):
             print(f"\n--- Round {current_round} / {total_rounds} --- ")
+            resource_at_start_of_round = env.get_resource_level()
+            print(f"Resource at round start (before potential shock): {resource_at_start_of_round:.2f}")
+
+            # Apply natural shock (only in non-seed rounds)
+            shock_reduction = env.apply_shock(shock_probability, shock_magnitude)
+            resource_after_shock = env.get_resource_level() # Get level *after* shock
+
+            # Update state to be passed to agents (post-shock state)
             state = env.get_state()
-            resource_at_start_of_round = state['current_resource']
-            print(f"Start: {resource_at_start_of_round:.2f} resource")
+            state['shock_occurred_this_round'] = (shock_reduction > 0)
+            state['resource_before_shock'] = resource_at_start_of_round # For agent info
 
-            # Check termination conditions
-            if resource_at_start_of_round <= 1e-6:
-                print("Resource depleted. Ending simulation.")
+            # Check termination conditions *after* shock
+            if resource_after_shock <= 1e-6:
+                print("Resource depleted (post-shock). Ending simulation.")
                 break
-            if resource_at_start_of_round < critical_threshold:
-                print(f"Resource level ({resource_at_start_of_round:.2f}) below critical threshold ({critical_threshold:.2f}). Ending simulation.")
+            if resource_after_shock < critical_threshold:
+                print(f"Resource level ({resource_after_shock:.2f}) below critical threshold ({critical_threshold:.2f}) (post-shock). Ending simulation.")
                 break
 
-            # 1. Agents choose actions
+            print(f"Start Resource (available for harvest): {resource_after_shock:.2f}")
+
+            # 1. Agents choose actions based on post-shock state
             attempted_harvests: Dict[int, float] = {}
             total_attempted_harvest = 0.0
             for agent in agents:
+                # Pass the potentially updated state
                 decision = agent.choose_action(state, history, num_agents)
                 attempted_harvests[agent.agent_id] = decision
                 total_attempted_harvest += decision
             print(f"Attempted total harvest: {total_attempted_harvest:.2f}")
 
-            # 2. Determine actual harvests based on availability
+            # 2. Determine actual harvests based on post-shock availability
             actual_harvests: Dict[int, float] = {}
-            available_resource = env.get_resource_level()
+            available_resource = env.get_resource_level() # This is post-shock
             total_actually_harvested = 0.0
 
             if total_attempted_harvest <= 1e-6:
-                # No harvest attempted
                 for agent in agents:
                     actual_harvests[agent.agent_id] = 0.0
             elif available_resource <= 1e-6:
@@ -200,16 +214,13 @@ def run_simulation(
                  for agent in agents:
                     actual_harvests[agent.agent_id] = 0.0
             elif total_attempted_harvest <= available_resource:
-                # Sufficient resource
                 actual_harvests = attempted_harvests
             else:
-                # Insufficient resource: distribute proportionally
                 print(f" Attempted harvest ({total_attempted_harvest:.2f}) > available ({available_resource:.2f}). Distributing proportionally.")
                 for agent_id, attempted in attempted_harvests.items():
                     proportion = (attempted / total_attempted_harvest) if total_attempted_harvest > 1e-6 else 0
                     actual_harvests[agent_id] = proportion * available_resource
 
-            # Ensure all agents have an entry (even if 0)
             for agent in agents:
                 if agent.agent_id not in actual_harvests:
                     actual_harvests[agent.agent_id] = 0.0
@@ -230,10 +241,12 @@ def run_simulation(
             resource_before_regen = env.get_resource_level()
             print(f"Resource before regeneration: {resource_before_regen:.2f}")
 
-            # 4. Record history
+            # 4. Record history (include shock info)
             history.append({
                 'round': current_round,
-                'resource_at_start': resource_at_start_of_round,
+                'resource_at_start': resource_at_start_of_round, # Before shock
+                'shock_reduction': shock_reduction,
+                'resource_after_shock': resource_after_shock,
                 'attempted_harvests': attempted_harvests.copy(),
                 'actual_harvests': actual_harvests.copy(),
                 'total_harvested_this_round': total_actually_harvested,
@@ -245,7 +258,7 @@ def run_simulation(
             current_resource_after_regen = env.get_resource_level()
             print(f"Resource after regeneration: {current_resource_after_regen:.2f}")
 
-            # Update Plot
+            # Update Plot (uses post-regen level)
             round_numbers.append(current_round)
             resource_levels.append(current_resource_after_regen)
             total_harvests_this_round.append(total_actually_harvested)
@@ -305,10 +318,16 @@ def parse_args():
     parser.add_argument("--rounds", dest='total_rounds', type=int, default=50, help="Maximum number of simulation rounds.")
     parser.add_argument("--model", type=str, default="gpt-4o-mini", help="OpenAI model for agent decisions.")
     parser.add_argument("--seed_rounds", type=int, default=0, help="Number of initial rounds to simulate with a cooperative strategy.")
+    parser.add_argument("--shock_probability", type=float, default=0.0, help="Probability (0.0 to 1.0) of a natural shock reducing resource each round.")
+    parser.add_argument("--shock_magnitude", type=float, default=0.2, help="Fraction (0.0 to 1.0) by which resource is reduced during a shock.")
 
     args = parser.parse_args()
 
     # Validation checks
+    if args.shock_probability < 0.0 or args.shock_probability > 1.0:
+        parser.error("Shock probability must be between 0.0 and 1.0.")
+    if args.shock_magnitude < 0.0 or args.shock_magnitude > 1.0:
+        parser.error("Shock magnitude must be between 0.0 and 1.0.")
     if args.critical_threshold < 0:
         parser.error("Critical threshold cannot be negative.")
     if args.critical_threshold >= args.resource_limit:
@@ -343,5 +362,7 @@ if __name__ == "__main__":
         model=args.model,
         seed_rounds=args.seed_rounds,
         scenario_name=args.scenario,
-        critical_threshold=args.critical_threshold
+        critical_threshold=args.critical_threshold,
+        shock_probability=args.shock_probability,
+        shock_magnitude=args.shock_magnitude
     )

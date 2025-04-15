@@ -14,15 +14,21 @@ def get_prompt_text(scenario_name: str, agent_id: int, state: Dict, history: Lis
 
 def _get_fishing_prompt(agent_id: int, state: Dict, history: List[Dict], num_agents: int, total_payoff: float) -> str:
     """Generates the prompt for the specific fishing scenario with doubling resource."""
-    current_resource = state['current_resource']
+    # Extract state variables
+    current_resource = state['current_resource'] # This is the resource *after* any shock this round
     resource_limit = state['resource_limit']
-    # Assuming critical_threshold is passed in state if needed, or defined globally/via config
-    # For now, let's hardcode it based on the default in main.py or get it from state if available
-    critical_threshold = state.get('critical_threshold', 5.0)
+    critical_threshold = state.get('critical_threshold', 5.0) # Get threshold if available
     other_agents_count = num_agents - 1
 
-    # Narrative Prompt Setup using the user-provided style
-    # Using "tons" for fish resource
+    # Check for shock information in state
+    shock_notification = ""
+    if state.get('shock_occurred_this_round', False):
+        resource_before_shock = state.get('resource_before_shock', 'unknown level')
+        reduction_amount = resource_before_shock - current_resource if isinstance(resource_before_shock, float) else 'an unknown amount'
+        reduction_str = f"{reduction_amount:.2f}" if isinstance(reduction_amount, float) else reduction_amount
+        shock_notification = f"\n*** ALERT: A natural disaster occurred just before this round, reducing the fish population from {resource_before_shock:.2f} to the current level of {current_resource:.2f} (a reduction of {reduction_str} tons)! ***\n"
+
+    # Narrative Prompt Setup
     prompt_narrative = textwrap.dedent(f"""
         You are Agent {agent_id}, a fisherman, and you fish each round in a lake along with {other_agents_count} other fishermen (total {num_agents}).
         The lake has a maximum capacity of {resource_limit:.2f} tons of fish.
@@ -33,9 +39,9 @@ def _get_fishing_prompt(agent_id: int, state: Dict, history: List[Dict], num_age
 
         If the total amount all fishermen attempt to harvest exceeds the currently available fish, the available fish are distributed proportionally based on how much each fisherman requested. For example, if Fisherman A requests 4.0 tons and Fisherman B requests 6.0 tons (total 10.0 tons), but only 5.0 tons are available, Fisherman A gets (4.0/10.0)*5.0 = 2.0 tons and Fisherman B gets (6.0/10.0)*5.0 = 3.0 tons.
 
-        CRITICAL RULE: If the fish population at the start of a round is below {critical_threshold:.2f} tons, the lake is considered critically endangered, and **no fishing is allowed in that round or any subsequent rounds**. The simulation ends.
+        CRITICAL RULE: If the fish population at the start of a round (after any potential shock) is below {critical_threshold:.2f} tons, the lake is considered critically endangered, and **no fishing is allowed in that round or any subsequent rounds**. The simulation ends.
 
-        Your goal is to maximize the total fish caught over the long run.
+        Your goal is to maximize your total fish caught over the long run.
         Your total fish caught so far: {total_payoff:.2f} tons.
         If the fish population drops to 0, it cannot regenerate, and no more fish can be caught in subsequent rounds (this also happens if it drops below {critical_threshold:.2f} tons).
     """)
@@ -52,8 +58,8 @@ def _get_fishing_prompt(agent_id: int, state: Dict, history: List[Dict], num_age
             history_str += f"- Round {record.get('round', 'N/A')}: You={your_harvest:.2f}, Total={total_harvest:.2f}, StartFish={resource_start_str}\n"
     history_str += "\n"
 
-    # Final instruction
-    instruction = f"Current Fish Available: {current_resource:.2f} tons. CRITICAL THRESHOLD: {critical_threshold:.2f} tons. Based on the rules (especially the critical threshold), your goal, and the history, how many tons of fish do you attempt to harvest this round (must be >= 0.00)?\n"
+    # Final instruction (including shock info if applicable)
+    instruction = f"Current Fish Available (after potential shock): {current_resource:.2f} tons. CRITICAL THRESHOLD: {critical_threshold:.2f} tons.{shock_notification}How many tons of fish do you attempt to harvest this round (must be >= 0.00)?\n"
     instruction += "Respond with only a single non-negative floating-point number."
 
     return prompt_narrative + history_str + instruction
