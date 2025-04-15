@@ -94,11 +94,20 @@ python main.py [OPTIONS]
 *   `--model`: OpenAI model for agent decisions (default: `gpt-4o-mini`).
 *   `--seed_rounds`: Number of initial rounds to simulate with an optimal sustainable strategy (default: 0).
 *   `--shock_probability`: Probability (0.0-1.0) of a random shock reducing the resource each round (default: 0.0).
-*   `--shock_magnitude`: Fraction (0.0-1.0) resource is reduced by during a shock (default: 0.5).
+*   `--shock_magnitude`: Fraction (0.0-1.0) resource is reduced by during a shock (default: 0.2).
+*   `--change_regen_round`: Round AFTER which the regeneration factor changes (0 for no change) (default: 0).
+*   `--new_regen_factor`: The new regeneration factor to apply after `change_regen_round` (default: 1.5).
 
 ## Output
 
 The simulation will:
-*   Print round-by-round details to the console (resource levels, agent actions, harvests).
-*   Display a live plot window showing the resource level and total harvest over time.
+*   Create a timestamped directory for each run inside `./results/` (or the directory specified by `--results_base_dir`).
+*   Save the following files within the run directory:
+    *   `game_log.txt`: Detailed log of the simulation progress (resource levels, shocks, harvests, etc.).
+    *   `agent_{id}_conversation.jsonl`: For each agent, a JSON Lines file containing the prompt sent and the raw response received for each round.
+    *   `parameters.json`: The configuration parameters used for the run.
+    *   `summary.json`: Final results including final resource level, agent payoffs, and performance metrics (Sustainability, Equality, Efficiency).
+    *   `history.json`: A JSON file containing the detailed state changes and actions for every round.
+    *   `simulation_plot.png`: The plot showing resource level and total harvest over time.
+*   Print the simulation progress to the console (mirroring `game_log.txt`).
 *   Print final agent totals and the calculated Sustainability, Equality, and Efficiency metrics at the end. 

@@ -31,7 +31,7 @@ class Agent:
             raise ValueError("OpenAI API key not provided and OPENAI_API_KEY environment variable not set.")
         self.client = openai.OpenAI(api_key=api_key)
 
-    def choose_action(self, state: Dict, history: List[Dict], num_agents: int) -> float:
+    def choose_action(self, state: Dict, history: List[Dict], num_agents: int) -> Dict:
         """
         Decides the action (e.g., amount to harvest) using the OpenAI API based on the scenario prompt.
 
@@ -41,7 +41,10 @@ class Agent:
             num_agents: Total number of agents.
 
         Returns:
-            Agent's decision (e.g., amount to harvest, >= 0).
+            Dict containing:
+                'decision': Agent's decision (float, e.g., amount to harvest, >= 0).
+                'prompt': The full prompt text sent to the API (str).
+                'response_content': The raw response content from the API (str).
         """
         prompt = get_prompt_text(
             scenario_name=self.scenario_name,
@@ -52,6 +55,9 @@ class Agent:
             total_payoff=self.total_payoff
         )
 
+        response_content = "<API_CALL_FAILED>"
+        decision = 0.0 # Default decision on error
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -59,36 +65,35 @@ class Agent:
                 temperature=0.5,
                 max_tokens=15
             )
-            content = response.choices[0].message.content
+            response_content = response.choices[0].message.content
 
-            match = re.search(r'[-+]?([0-9]*[.])?[0-9]+', content)
+            match = re.search(r'[-+]?([0-9]*[.])?[0-9]+', response_content)
             if match:
                 decision = float(match.group(0))
             else:
-                 print(f"Agent {self.agent_id} (AI) response '{content}' invalid (no float). Falling back.")
-                 raise ValueError("No float found in response")
+                 print(f"Agent {self.agent_id} (AI) response '{response_content}' invalid (no float). Falling back.")
+                 # Keep default decision 0.0 but flag content as invalid
+                 response_content += " <INVALID_FLOAT_PARSE>"
+                 # Fallback logic moved outside the try block to ensure it uses response_content
 
             decision = max(0.0, decision)
             print(f"Agent {self.agent_id} (AI) proposes action: {decision:.2f}")
-            return decision
+            # Return dict including prompt and response
+            return {"decision": decision, "prompt": prompt, "response_content": response_content}
 
         except (openai.APIError, ValueError, IndexError) as e:
             print(f"Agent {self.agent_id} decision error: {e}. Falling back to random action.")
-            fallback_decision = 0.0
-            # Fallback strategy might depend on the scenario
-            if self.scenario_name == "fishing":
-                max_possible_action = state.get('current_resource', 0.0)
-                fallback_decision = random.uniform(0.0, max_possible_action)
-            print(f"Agent {self.agent_id} (Fallback) proposes action: {fallback_decision:.2f}")
-            return fallback_decision
         except Exception as e:
              print(f"Agent {self.agent_id} unexpected error: {e}. Falling back to random action.")
-             fallback_decision = 0.0
-             if self.scenario_name == "fishing":
-                 max_possible_action = state.get('current_resource', 0.0)
-                 fallback_decision = random.uniform(0.0, max_possible_action)
-             print(f"Agent {self.agent_id} (Fallback) proposes action: {fallback_decision:.2f}")
-             return fallback_decision
+
+        # Fallback logic if try block failed or parsing failed previously
+        fallback_decision = 0.0
+        if self.scenario_name == "fishing":
+            max_possible_action = state.get('current_resource', 0.0)
+            fallback_decision = random.uniform(0.0, max_possible_action)
+        print(f"Agent {self.agent_id} (Fallback) proposes action: {fallback_decision:.2f}")
+        # Return dict even on fallback, indicating failure in content
+        return {"decision": fallback_decision, "prompt": prompt, "response_content": response_content}
 
     def update_payoff(self, payoff_increment: float):
         """Updates the agent's total accumulated payoff."""
