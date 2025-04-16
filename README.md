@@ -17,18 +17,6 @@ The current default scenario models a resource that doubles each round after har
     *   **Equality:** How evenly the harvest is distributed (1 - Gini Coefficient).
     *   **Efficiency:** Average harvest per agent.
 
-## Project Structure
-
-```
-├── main.py             # Main simulation script, argument parsing
-├── agent.py            # Defines the generic Agent class (using OpenAI API)
-├── environment.py      # Defines the ResourceEnvironment class (manages resource dynamics)
-├── prompts.py          # Defines prompt generation logic for different scenarios
-├── requirements.txt    # Project dependencies
-├── README.md           # This file
-└── ... (other potential files like .gitignore)
-```
-
 ## Setup
 
 1.  **Clone the repository:**
@@ -37,19 +25,7 @@ The current default scenario models a resource that doubles each round after har
     cd <repository-directory>
     ```
 
-2.  **Create a virtual environment (optional but recommended):**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-    ```
-
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-    *Note: Requires `openai`, `matplotlib`, `numpy`.* 
-
-4.  **Set up OpenAI API Key:**
+2.  **Set up OpenAI API Key:**
     Set the `OPENAI_API_KEY` environment variable:
     ```bash
     export OPENAI_API_KEY='your-api-key'

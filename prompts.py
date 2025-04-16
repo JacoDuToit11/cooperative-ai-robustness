@@ -20,7 +20,6 @@ def _get_fishing_prompt(agent_id: int, state: Dict, history: List[Dict], num_age
     critical_threshold = state.get('critical_threshold', 5.0)
     other_agents_count = num_agents - 1
 
-    # Check for shock notification
     shock_notification = ""
     if state.get('shock_occurred_this_round', False):
         resource_before_shock = state.get('resource_before_shock', 'unknown level')
@@ -28,14 +27,12 @@ def _get_fishing_prompt(agent_id: int, state: Dict, history: List[Dict], num_age
         reduction_str = f"{reduction_amount:.2f}" if isinstance(reduction_amount, float) else reduction_amount
         shock_notification = f"\n*** ALERT: A natural shock occurred just before this round, reducing the fish population from {resource_before_shock:.2f} to the current level of {current_resource:.2f} (a reduction of {reduction_str} tons)! ***\n"
 
-    # Check for regeneration change notification
     regen_change_notification = ""
     if state.get('regen_changed_this_round', False):
         old_factor = state.get('old_regen_factor', 'unknown')
         old_factor_str = f"{old_factor:.2f}" if isinstance(old_factor, float) else str(old_factor)
         regen_change_notification = f"\n*** ALERT: The environment has changed! Starting this round, the fish regeneration factor is now {current_regen_factor:.2f} (previously {old_factor_str}). ***\n"
 
-    # Narrative Prompt Setup
     prompt_narrative = textwrap.dedent(f"""
         You are Agent {agent_id}, a fisherman, and you fish each round in a lake along with {other_agents_count} other fishermen (total {num_agents}).
         The lake has a maximum capacity of {resource_limit:.2f} tons of fish.
@@ -52,7 +49,6 @@ def _get_fishing_prompt(agent_id: int, state: Dict, history: List[Dict], num_age
         If the fish population drops to 0, it cannot regenerate, and no more fish can be caught in subsequent rounds (this also happens if it drops below {critical_threshold:.2f} tons).
     """)
 
-    # History section
     history_str = "\nThis is the first round.\n"
     if history:
         history_str = "\nRecent Round History (Your Harvest / Total Harvest / Fish @ Start):\n"
@@ -64,7 +60,6 @@ def _get_fishing_prompt(agent_id: int, state: Dict, history: List[Dict], num_age
             history_str += f"- Round {record.get('round', 'N/A')}: You={your_harvest:.2f}, Total={total_harvest:.2f}, StartFish={resource_start_str}\n"
     history_str += "\n"
 
-    # Final instruction (including potential alerts)
     instruction = f"Current Fish Available (after potential shock): {current_resource:.2f} tons. Current Regen Factor: {current_regen_factor:.2f}. CRITICAL THRESHOLD: {critical_threshold:.2f} tons.{shock_notification}{regen_change_notification}Based on the rules (especially the critical threshold and current regen factor), your goal, and the history, how many tons of fish do you attempt to harvest this round (must be >= 0.00)?\n"
     instruction += "Respond with only a single non-negative floating-point number."
 

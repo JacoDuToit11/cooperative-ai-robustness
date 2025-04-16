@@ -4,7 +4,6 @@ import random
 import re
 from typing import Optional, List, Dict
 
-# Import the prompt generation function
 from prompts import get_prompt_text
 
 class Agent:
@@ -72,13 +71,10 @@ class Agent:
                 decision = float(match.group(0))
             else:
                  print(f"Agent {self.agent_id} (AI) response '{response_content}' invalid (no float). Falling back.")
-                 # Keep default decision 0.0 but flag content as invalid
                  response_content += " <INVALID_FLOAT_PARSE>"
-                 # Fallback logic moved outside the try block to ensure it uses response_content
 
             decision = max(0.0, decision)
             print(f"Agent {self.agent_id} (AI) proposes action: {decision:.2f}")
-            # Return dict including prompt and response
             return {"decision": decision, "prompt": prompt, "response_content": response_content}
 
         except (openai.APIError, ValueError, IndexError) as e:
@@ -86,13 +82,11 @@ class Agent:
         except Exception as e:
              print(f"Agent {self.agent_id} unexpected error: {e}. Falling back to random action.")
 
-        # Fallback logic if try block failed or parsing failed previously
         fallback_decision = 0.0
         if self.scenario_name == "fishing":
             max_possible_action = state.get('current_resource', 0.0)
             fallback_decision = random.uniform(0.0, max_possible_action)
         print(f"Agent {self.agent_id} (Fallback) proposes action: {fallback_decision:.2f}")
-        # Return dict even on fallback, indicating failure in content
         return {"decision": fallback_decision, "prompt": prompt, "response_content": response_content}
 
     def update_payoff(self, payoff_increment: float):
