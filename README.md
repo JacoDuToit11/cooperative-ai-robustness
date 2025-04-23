@@ -6,16 +6,17 @@ The current default scenario models a resource that doubles each round after har
 
 ## Features
 
+*   **Configuration via JSON file.**
 *   Configurable number of agents, initial resource, resource limit, and simulation rounds.
 *   AI agents using specified OpenAI models (e.g., `gpt-4o-mini`) for decision-making.
-*   Scenario-specific prompts loaded from `prompts.py` (currently implements a "fishing" scenario).
-*   Resource regeneration model: Doubling with a cap (defined in `environment.py`).
-*   Optional "cooperative seeding" rounds to establish a baseline history before AI takes over.
-*   Live plotting of resource level and total harvest per round using `matplotlib`.
-*   Calculation and reporting of performance metrics:
-    *   **Sustainability:** Final resource level relative to the limit.
-    *   **Equality:** How evenly the harvest is distributed (1 - Gini Coefficient).
-    *   **Efficiency:** Average harvest per agent.
+*   Scenario-specific prompts loaded from `prompts.py`.
+*   Resource regeneration model (defined in `environment.py`).
+*   Optional "cooperative seeding" rounds.
+*   Ability to run multiple simulations with the same parameters and aggregate results.
+*   Optional disabling of agent conversation log saving.
+*   Calculation and reporting of performance metrics (Sustainability, Equality, Efficiency) for individual runs and averaged across multiple runs.
+*   Generation of an aggregated plot showing average resource level and total harvest over time across multiple runs.
+*   Generation of individual plots for each run.
 
 ## Setup
 
@@ -32,58 +33,63 @@ The current default scenario models a resource that doubles each round after har
     ```
     Alternatively, modify `agent.py` to load the key from a different source.
 
+3.  **(Optional) Modify Configuration:**
+    Edit the `config.json` file in the project root directory to set your desired simulation parameters.
+
 ## Running the Simulation
 
-Execute the main script from your terminal:
+Execute the main script from your terminal, specifying the configuration file:
 
 ```bash
-python main.py [OPTIONS]
+python main.py --config config.json
 ```
 
-### Example Usage:
+Or, if you create a different configuration file (e.g., `configs/scenario_a.json`):
 
-*   Run with default settings (4 agents, 100 initial/limit, 50 rounds, fishing scenario):
-    ```bash
-    python main.py
-    ```
-*   Run with 3 agents for 30 rounds, starting with 50 resource units:
-    ```bash
-    python main.py --num_agents 3 --rounds 30 --initial_resource 50
-    ```
-*   Run with 5 cooperative seed rounds before the 50 main rounds:
-    ```bash
-    python main.py --rounds 50 --seed_rounds 5
-    ```
-*   Use a different OpenAI model:
-    ```bash
-    python main.py --model gpt-4o
-    ```
+```bash
+python main.py --config configs/scenario_a.json
+```
 
-### Configuration Options:
+### Configuration File (`config.json`)
 
-*   `--scenario`: Name of the scenario to run (default: `fishing`). Determines prompts.
-*   `--num_agents`: Number of AI agents participating (default: 4).
-*   `--initial_resource`: Starting amount of the resource (default: 100.0).
-*   `--resource_limit`: Maximum resource limit (default: 100.0).
-*   `--critical_threshold`: Resource level below which the simulation ends (default: 5.0).
-*   `--rounds`: Maximum number of simulation rounds (default: 50).
-*   `--model`: OpenAI model for agent decisions (default: `gpt-4o-mini`).
-*   `--seed_rounds`: Number of initial rounds to simulate with an optimal sustainable strategy (default: 0).
-*   `--shock_probability`: Probability (0.0-1.0) of a random shock reducing the resource each round (default: 0.0).
-*   `--shock_magnitude`: Fraction (0.0-1.0) resource is reduced by during a shock (default: 0.2).
-*   `--change_regen_round`: Round AFTER which the regeneration factor changes (0 for no change) (default: 0).
-*   `--new_regen_factor`: The new regeneration factor to apply after `change_regen_round` (default: 1.5).
+The simulation parameters are controlled by a JSON file (default: `config.json`). Here is an example structure with explanations:
+
+```json
+{
+  "run_name": "default_config_run",  // Optional name prefix for the results directory
+  "results_base_dir": "results",    // Base directory where run results will be saved
+  "num_runs": 1,                   // Number of times to run the simulation with these parameters
+  "no_save_conversations": false,  // If true, agent_*.jsonl files will NOT be saved (default: false -> conversations ARE saved)
+  "scenario": "fishing",           // Scenario name (determines prompts)
+  "num_agents": 4,                 // Number of agents
+  "initial_resource": 100.0,       // Starting resource amount
+  "resource_limit": 100.0,         // Maximum resource capacity
+  "critical_threshold": 5.0,       // Resource level below which simulation ends
+  "total_rounds": 50,              // Maximum simulation rounds per run
+  "model": "gpt-4o-mini",          // OpenAI model for agent decisions
+  "seed_rounds": 0,                // Number of initial cooperative rounds
+  "shock_probability": 0.0,        // Probability (0.0-1.0) of a resource shock per round
+  "shock_magnitude": 0.2,          // Fraction (0.0-1.0) resource reduction during a shock
+  "change_regen_round": 0,         // Round AFTER which regen factor changes (0=no change)
+  "new_regen_factor": 1.5,         // New regen factor if change_regen_round > 0
+  "random_seed": 42                // (Optional) Integer seed for RNG (shocks). Set to null or omit for non-deterministic runs.
+}
+```
 
 ## Output
 
 The simulation will:
-*   Create a timestamped directory for each run inside `./results/` (or the directory specified by `--results_base_dir`).
-*   Save the following files within the run directory:
-    *   `game_log.txt`: Detailed log of the simulation progress (resource levels, shocks, harvests, etc.).
-    *   `agent_{id}_conversation.jsonl`: For each agent, a JSON Lines file containing the prompt sent and the raw response received for each round.
-    *   `parameters.json`: The configuration parameters used for the run.
-    *   `summary.json`: Final results including final resource level, agent payoffs, and performance metrics (Sustainability, Equality, Efficiency).
-    *   `history.json`: A JSON file containing the detailed state changes and actions for every round.
-    *   `simulation_plot.png`: The plot showing resource level and total harvest over time.
-*   Print the simulation progress to the console (mirroring `game_log.txt`).
-*   Print final agent totals and the calculated Sustainability, Equality, and Efficiency metrics at the end. 
+*   Create a main timestamped directory for the set of runs inside the configured `results_base_dir`.
+*   Inside the main directory, save:
+    *   `master_parameters.json`: The configuration loaded from the JSON file, plus the path to the config file used.
+    *   `aggregated_summary.json`: Contains the average metrics and standard deviations calculated across all successful runs (if `num_runs` > 1).
+    *   `aggregated_plot.png`: A plot showing the average resource level and average total harvest per round across all successful runs (if `num_runs` > 1).
+*   Inside the main directory, create subdirectories for each individual run: `run_1/`, `run_2/`, etc.
+*   Inside each `run_X/` directory, save:
+    *   `game_log.txt`: Detailed log of that specific simulation run.
+    *   `parameters.json`: The configuration parameters used for that specific run (mostly mirrors master, includes run index).
+    *   `summary.json`: Final results and metrics for that specific run.
+    *   `history.json`: Detailed state changes and actions for every round in that specific run.
+    *   `simulation_plot.png`: A plot showing resource level and total harvest over time for this specific run.
+    *   `agent_{id}_conversation.jsonl`: (Optional) If `no_save_conversations` in the config is `false`, JSON Lines files containing the prompts and responses for each agent in that run.
+*   Print progress and final aggregated metrics (if applicable) to the console. 

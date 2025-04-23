@@ -1,0 +1,19 @@
+{
+  "run_name": "default_config_run",
+  "results_base_dir": "results",
+  "num_runs": 3,
+  "save_conversations": false,
+  "scenario": "fishing",
+  "num_agents": 2,
+  "initial_resource": 100.0,
+  "resource_limit": 100.0,
+  "critical_threshold": 5.0,
+  "total_rounds": 10,
+  "model": "gpt-4o-mini",
+  "seed_rounds": 5,
+  "shock_probability": 0.5,
+  "shock_magnitude": 0.2,
+  "change_regen_round": 0,
+  "new_regen_factor": 1.5,
+  "random_seed": 42
+} 
